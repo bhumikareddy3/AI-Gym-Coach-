@@ -1,0 +1,130 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+<meta charset="UTF-8">
+<meta name="viewport" content="width=device-width, initial-scale=1.0">
+<title>AI Gym Coach</title>
+<link rel="preconnect" href="https://fonts.googleapis.com">
+<link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Oswald:wght@400;500;600;700&family=Inter:wght@400;500;600&family=JetBrains+Mono:wght@400;500;700&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="/static/style.css">
+</head>
+<body>
+
+<div class="app">
+
+  <header class="topbar">
+    <div class="brand">
+      <span class="brand-mark">AI</span>
+      <div class="brand-text">
+        <h1>Gym Coach</h1>
+        <span class="brand-sub">Real-time pose &amp; form analysis</span>
+      </div>
+    </div>
+    <div class="conn-status" id="connStatus">
+      <span class="dot" id="connDot"></span>
+      <span id="connLabel">Checking backend&hellip;</span>
+    </div>
+  </header>
+
+  <main class="layout">
+
+    <!-- LEFT: video + skeleton overlay -->
+    <section class="stage-panel">
+      <div class="stage-wrap" id="stageWrap">
+        <video id="video" autoplay muted playsinline></video>
+        <canvas id="canvas" width="640" height="480"></canvas>
+
+        <div class="stage-overlay-topleft">
+          <span class="exercise-pill" id="exercisePill">not started</span>
+        </div>
+
+        <div class="stage-placeholder" id="stagePlaceholder">
+          <i class="stage-placeholder-icon">&#9679;</i>
+          <p>Camera preview will appear here</p>
+          <p class="stage-placeholder-sub">Press "Start session" to begin</p>
+        </div>
+      </div>
+
+      <div class="controls">
+        <div class="control-group">
+          <label for="userIdInput">User</label>
+          <input type="text" id="userIdInput" placeholder="your name" value="bhumika">
+        </div>
+        <div class="control-group">
+          <label for="exerciseSelect">Exercise</label>
+          <select id="exerciseSelect">
+            <option value="auto">Auto-detect</option>
+            <option value="squat">Squat</option>
+            <option value="pushup">Push-up</option>
+            <option value="lunge">Lunge</option>
+            <option value="plank">Plank</option>
+            <option value="bicep_curl">Bicep curl</option>
+          </select>
+        </div>
+        <div class="control-group" id="targetSecondsGroup" style="display:none;">
+          <label for="targetSeconds">Hold target (s)</label>
+          <input type="number" id="targetSeconds" value="60" min="10" max="300">
+        </div>
+        <div class="control-buttons">
+          <button class="btn btn-primary" id="startBtn">Start session</button>
+          <button class="btn btn-danger" id="endBtn" disabled>End session</button>
+        </div>
+      </div>
+
+      <p class="hint" id="statusHint">Fill in your name, choose an exercise, and press start. Allow camera access when prompted.</p>
+    </section>
+
+    <!-- RIGHT: live stats + feedback + history -->
+    <aside class="side-panel">
+
+      <div class="card metric-card">
+        <div class="metric-row">
+          <div class="metric">
+            <span class="metric-label" id="repLabel">Reps</span>
+            <span class="metric-value mono" id="repValue">0</span>
+          </div>
+          <div class="metric">
+            <span class="metric-label">Form score</span>
+            <span class="metric-value mono" id="formValue">&mdash;</span>
+          </div>
+        </div>
+        <div class="form-bar-track">
+          <div class="form-bar-fill" id="formBarFill"></div>
+        </div>
+      </div>
+
+      <div class="card feedback-card">
+        <h2>Live coaching</h2>
+        <ul class="feedback-list" id="feedbackList">
+          <li class="feedback-empty">Coaching messages will appear here once a session starts.</li>
+        </ul>
+      </div>
+
+      <div class="card summary-card" id="summaryCard" style="display:none;">
+        <h2>Session summary</h2>
+        <div class="summary-grid" id="summaryGrid"></div>
+        <button class="btn btn-secondary" id="recommendBtn">Get recommendation</button>
+        <div class="recommendation" id="recommendationBox" style="display:none;"></div>
+      </div>
+
+      <div class="card about-card">
+        <h2>Supported exercises</h2>
+        <ul class="exercise-list">
+          <li><span class="tag c-squat"></span> Squat &mdash; depth, back angle, knee tracking</li>
+          <li><span class="tag c-pushup"></span> Push-up &mdash; elbow extension, hip sag</li>
+          <li><span class="tag c-lunge"></span> Lunge &mdash; knee depth, torso lean</li>
+          <li><span class="tag c-plank"></span> Plank &mdash; hold timer, body line</li>
+          <li><span class="tag c-curl"></span> Bicep curl &mdash; range of motion, shoulder swing</li>
+        </ul>
+      </div>
+
+    </aside>
+
+  </main>
+
+</div>
+
+<script src="/static/app.js"></script>
+</body>
+</html>

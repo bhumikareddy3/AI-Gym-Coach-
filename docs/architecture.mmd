@@ -1,0 +1,47 @@
+flowchart TB
+    subgraph Input["Video Input"]
+        CAM["Webcam Frame\n(OpenCV VideoCapture)"]
+    end
+
+    subgraph CV["Computer Vision Layer"]
+        POSE["PoseEstimator\nMediaPipe Pose\n33 landmarks"]
+    end
+
+    subgraph FEAT["Feature Engineering Layer"]
+        ANGLES["compute_joint_angles()\nknee / hip / elbow / shoulder /\ntorso incline / knee valgus"]
+        VEC["extract_feature_vector()\n15-dim normalized vector"]
+    end
+
+    subgraph AI["AI / ML Layer"]
+        CLF["ExerciseClassifier\nRandomForest (skeleton-based\naction recognition) + rule fallback"]
+        RULES["exercise_rules.py\nIdeal biomechanical ranges"]
+        FORM["FormChecker\nrule-based mistake detection\n+ posture confidence score"]
+        REPS["RepCounter / PlankTimer\nangle state machine,\nROM & consistency tracking"]
+        FEEDBACK["FeedbackEngine\nthrottled natural-language\ncoaching + EMA scoring"]
+    end
+
+    subgraph PERSIST["Persistence & Analytics"]
+        DB[("SQLite\nsessions / reps")]
+        REC["WorkoutRecommender\nweakness detection,\ndifficulty progression"]
+    end
+
+    subgraph SURFACE["Delivery Surfaces"]
+        CLI["main.py\nOpenCV real-time overlay UI"]
+        API["FastAPI api.py\n/analyze_frame inference endpoint"]
+    end
+
+    CAM --> POSE --> ANGLES
+    POSE --> VEC --> CLF
+    CLF -- "active exercise" --> FORM
+    ANGLES --> FORM
+    RULES --> FORM
+    ANGLES --> REPS
+    FORM --> FEEDBACK
+    REPS --> FEEDBACK
+    FEEDBACK --> CLI
+    FEEDBACK --> API
+    REPS --> DB
+    FORM --> DB
+    DB --> REC
+    REC --> API
+    REC --> CLI
