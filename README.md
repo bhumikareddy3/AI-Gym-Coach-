@@ -272,3 +272,4 @@ gym_coach/
   intentionally deferred — the engineered angle-vector + RandomForest gives
   equivalent accuracy for this fixed exercise set at a fraction of the
   compute, making it viable for real-time CPU inference.
+time CPU inference.
