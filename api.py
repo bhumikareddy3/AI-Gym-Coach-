@@ -32,13 +32,16 @@ from fastapi.responses import FileResponse
 from pydantic import BaseModel
 
 from app.pose_estimator import PoseEstimator, PoseLandmark
-from app.feature_engineering import compute_joint_angles, is_fully_visible
+from app.feature_engineering import compute_joint_angles
 from app.exercise_classifier import ExerciseClassifier
 from app.rep_counter import RepCounter, PlankTimer, THRESHOLDS
 from app.feedback_engine import FeedbackEngine
 from app.performance_logger import PerformanceLogger
 from app.recommender import WorkoutRecommender
 from app.exercise_rules import SUPPORTED_EXERCISES
+from app.pose_confidence import compute_pose_confidence
+from app.temporal_analyzer import TemporalAnalyzer
+from app.form_analysis import build_form_analysis
 
 app = FastAPI(title="AI Gym Coach - Inference API", version="1.0.0")
 
@@ -111,6 +114,7 @@ def start_session(req: StartSessionRequest):
         "rep_counter": RepCounter(req.exercise) if req.exercise in THRESHOLDS else None,
         "plank_timer": PlankTimer() if req.exercise == "plank" else None,
         "feedback_engine": FeedbackEngine(req.exercise) if req.exercise in SUPPORTED_EXERCISES else None,
+        "temporal_analyzer": TemporalAnalyzer(req.exercise) if req.exercise in SUPPORTED_EXERCISES else None,
         "db_session_id": _logger.start_session(req.user_id, req.exercise) if req.exercise in SUPPORTED_EXERCISES else None,
     }
     return {"session_id": session_id}
@@ -137,8 +141,19 @@ def analyze_frame(session_id: str, req: FrameRequest):
     frame = _decode_frame(req.image_base64)
     lf = _pose_estimator.process(frame)
 
-    if lf is None or not is_fully_visible(lf):
+    if lf is None:
         return {"person_detected": False, "message": "Move into full view of the camera"}
+
+    # Graded pose-confidence gate (spec section 3): a coarse core-landmark
+    # check before we even know the exercise. feature_engineering.is_fully_visible()
+    # remains available as an equivalent boolean check for other callers.
+    core_conf = compute_pose_confidence(lf, exercise=None)
+    if not core_conf.reliable:
+        return {
+            "person_detected": True,
+            "pose_confidence": core_conf.to_dict(),
+            "message": core_conf.message,
+        }
 
     # Resolve active exercise (auto-classify if needed)
     if s["exercise_mode"] == "auto":
@@ -148,6 +163,7 @@ def analyze_frame(session_id: str, req: FrameRequest):
             s["rep_counter"] = RepCounter(pred_exercise) if pred_exercise in THRESHOLDS else None
             s["plank_timer"] = PlankTimer() if pred_exercise == "plank" else None
             s["feedback_engine"] = FeedbackEngine(pred_exercise)
+            s["temporal_analyzer"] = TemporalAnalyzer(pred_exercise)
             if s["db_session_id"] is not None:
                 _finalize_db_session(s, target_seconds=60.0)
             s["db_session_id"] = _logger.start_session(s["user_id"], pred_exercise)
@@ -156,12 +172,26 @@ def analyze_frame(session_id: str, req: FrameRequest):
     if exercise is None:
         return {"person_detected": True, "active_exercise": None, "message": "Detecting exercise..."}
 
+    # Refined confidence check including this exercise's specific landmarks
+    # (e.g. elbows/wrists for push-ups/curls). Form correction and any
+    # future LLM/RAG coaching call must not run on an unreliable read.
+    exercise_conf = compute_pose_confidence(lf, exercise=exercise)
+    if not exercise_conf.reliable:
+        return {
+            "person_detected": True,
+            "active_exercise": exercise,
+            "pose_confidence": exercise_conf.to_dict(),
+            "message": exercise_conf.message,
+        }
+
     angles = compute_joint_angles(lf)
     rep_counter: Optional[RepCounter] = s["rep_counter"]
     plank_timer: Optional[PlankTimer] = s["plank_timer"]
     fe: FeedbackEngine = s["feedback_engine"]
+    temporal: Optional[TemporalAnalyzer] = s.get("temporal_analyzer")
+    temporal_metrics = temporal.update(angles) if temporal else None
 
-    response = {"person_detected": True, "active_exercise": exercise}
+    response = {"person_detected": True, "active_exercise": exercise, "pose_confidence": exercise_conf.to_dict()}
 
     if exercise == "plank":
         result = fe.evaluate(angles)
@@ -188,6 +218,24 @@ def analyze_frame(session_id: str, req: FrameRequest):
     response["feedback"] = [m.text for m in messages]
     response["joint_angles"] = {k: round(v, 1) for k, v in angles.items()}
     response["landmarks"] = get_ui_landmarks(lf)
+
+    if temporal_metrics is not None:
+        response["temporal"] = temporal_metrics.to_dict()
+
+    rom_pct = rep_counter.range_of_motion_pct() if rep_counter else (
+        plank_timer.form_accuracy_pct() if plank_timer else 0.0)
+    tempo_sec = rep_counter.avg_tempo_sec() if rep_counter else 0.0
+    rep_count = rep_counter.count if rep_counter else 0
+    response["form_analysis"] = build_form_analysis(
+        exercise=exercise,
+        form_result=result,
+        pose_conf=exercise_conf,
+        rep_count=rep_count,
+        range_of_motion_pct=rom_pct,
+        avg_tempo_sec=tempo_sec,
+        temporal=temporal_metrics,
+    ).to_dict()
+
     return response
 
 

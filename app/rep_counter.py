@@ -13,7 +13,7 @@ angle hovers near a single cutoff.
 
 import time
 from dataclasses import dataclass, field
-from typing import List, Optional
+from typing import Dict, List, Optional
 
 
 @dataclass
@@ -23,6 +23,8 @@ class RepRecord:
     max_angle: float
     duration_sec: float
     depth_ok: bool  # whether ROM reached the "good" threshold
+    eccentric_sec: float = 0.0   # top -> bottom (lengthening) phase duration
+    concentric_sec: float = 0.0  # bottom -> top (shortening) phase duration
 
 
 # angle_key: which joint-angle drives the state machine for each exercise
@@ -51,6 +53,7 @@ class RepCounter:
         self.current_min = 999.0
         self.current_max = -999.0
         self._rep_start_time: Optional[float] = None
+        self._down_start_time: Optional[float] = None  # set when state -> "down"
         self.history: List[RepRecord] = []
 
     def _driving_angle(self, angles: dict) -> float:
@@ -67,14 +70,20 @@ class RepCounter:
 
         completed: Optional[RepRecord] = None
 
+        now = time.time()
+
         if self.state == "up" and angle <= self.cfg["enter_down"]:
             self.state = "down"
+            self._down_start_time = now
 
         elif self.state == "down" and angle >= self.cfg["enter_up"]:
             # rep completed: went down then back up
             self.state = "up"
             self.count += 1
-            duration = time.time() - self._rep_start_time if self._rep_start_time else 0.0
+            duration = now - self._rep_start_time if self._rep_start_time is not None else 0.0
+            eccentric_sec = (self._down_start_time - self._rep_start_time) if (
+                self._down_start_time is not None and self._rep_start_time is not None) else 0.0
+            concentric_sec = (now - self._down_start_time) if self._down_start_time is not None else 0.0
             depth_ok = self.current_min <= self.cfg["good_rom"]
             completed = RepRecord(
                 rep_number=self.count,
@@ -82,11 +91,14 @@ class RepCounter:
                 max_angle=self.current_max,
                 duration_sec=duration,
                 depth_ok=depth_ok,
+                eccentric_sec=round(max(0.0, eccentric_sec), 3),
+                concentric_sec=round(max(0.0, concentric_sec), 3),
             )
             self.history.append(completed)
             # reset tracking window for next rep
             self.current_min, self.current_max = 999.0, -999.0
-            self._rep_start_time = time.time()
+            self._rep_start_time = now
+            self._down_start_time = None
 
         return completed
 
@@ -123,6 +135,23 @@ class RepCounter:
         variance = sum((d - mean) ** 2 for d in durations) / len(durations)
         cv = (variance ** 0.5) / mean  # coefficient of variation
         return float(max(0.0, 100.0 * (1 - min(cv, 1.0))))
+
+    def avg_tempo_sec(self) -> float:
+        """Average total rep duration (seconds) -- reported to the user/UI
+        as 'tempo'."""
+        if not self.history:
+            return 0.0
+        return float(sum(r.duration_sec for r in self.history) / len(self.history))
+
+    def avg_phase_sec(self) -> Dict[str, float]:
+        """Average eccentric/concentric phase duration across completed reps."""
+        if not self.history:
+            return {"eccentric_sec": 0.0, "concentric_sec": 0.0}
+        n = len(self.history)
+        return {
+            "eccentric_sec": float(sum(r.eccentric_sec for r in self.history) / n),
+            "concentric_sec": float(sum(r.concentric_sec for r in self.history) / n),
+        }
 
 
 class PlankTimer:
